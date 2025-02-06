@@ -68,6 +68,9 @@ const Resultados = () => {
     0
   );
 
+  // Filtrar solo los colores que necesitan refuerzo
+  const coloresFiltrados = Object.entries(coloresRefuerzo).filter(([_, nivel]) => nivel !== "sin refuerzo");
+
   return (
     <div style={styles.container}>
       <Header />
@@ -94,12 +97,14 @@ const Resultados = () => {
           </div>
         </div>
 
-        {coloresRefuerzo && coloresRefuerzo.length > 0 && (
+        {coloresFiltrados.length > 0 && (
           <div style={styles.refuerzoContainer}>
             <h2 style={styles.refuerzoTitle}>⚠️ Refuerza en estos colores:</h2>
             <ul style={styles.colorList}>
-              {coloresRefuerzo.map((color, index) => (
-                <li key={index} style={styles.colorItem}>{color}</li>
+              {coloresFiltrados.map(([color, nivel], index) => (
+                <li key={index} style={styles.colorItem}>
+                  {color} - {nivel}
+                </li>
               ))}
             </ul>
             <button style={styles.refuerzoButton} onClick={manejarRefuerzo}>

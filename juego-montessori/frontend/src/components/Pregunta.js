@@ -21,7 +21,6 @@ const Pregunta = () => {
   const [mensaje, setMensaje] = useState("");
   const [procesandoRespuesta, setProcesandoRespuesta] = useState(false);
 
-  // Inicializamos los errores acumulados por color
   const erroresPorColor = useRef({
     celeste: 0,
     magenta: 0,
@@ -43,10 +42,10 @@ const Pregunta = () => {
   const intervaloRef = useRef(null);
 
   useEffect(() => {
-    if (refuerzoColores?.length > 0) {
-      cargarPreguntasRefuerzo(); // Cargar preguntas de refuerzo si existen colores
+    if (refuerzoColores && Object.keys(refuerzoColores).length > 0) {
+      cargarPreguntasRefuerzo(refuerzoColores);
     } else {
-      cargarPreguntas(); // Cargar preguntas regulares
+      cargarPreguntas();
     }
     iniciarTemporizador();
 
@@ -100,35 +99,40 @@ const Pregunta = () => {
     }
   };
 
-  const cargarPreguntasRefuerzo = async () => {
+  const cargarPreguntasRefuerzo = async (coloresRefuerzo) => {
     try {
-      console.log("Colores de refuerzo recibidos del modelo:", refuerzoColores);
+      console.log("Colores y niveles de refuerzo recibidos:", coloresRefuerzo);
 
       const preguntasRef = collection(db, "preguntas");
       const q = query(preguntasRef, where("grupoEdad", "==", grupoEdad));
       const querySnapshot = await getDocs(q);
 
-      let preguntasValidas = querySnapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((pregunta) => refuerzoColores.includes(pregunta.respuestaCorrecta.toLowerCase()));
+      let preguntasValidas = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
-      const seleccionarPreguntas = (preguntasColor) => {
+      const seleccionarPreguntasPorNivel = (color, nivel) => {
+        const preguntasPorColor = preguntasValidas.filter(
+          (pregunta) => pregunta.respuestaCorrecta.toLowerCase() === color.toLowerCase()
+        );
+
+        let cantidadPreguntas = 0;
+        if (nivel === "leve") cantidadPreguntas = 1;
+        else if (nivel === "moderado") cantidadPreguntas = 2;
+        else if (nivel === "intensivo") cantidadPreguntas = 3;
+
         const seleccionadas = [];
-        while (seleccionadas.length < 3 && preguntasColor.length > 0) {
-          const indexAleatorio = Math.floor(Math.random() * preguntasColor.length);
-          seleccionadas.push(preguntasColor.splice(indexAleatorio, 1)[0]);
+        for (let i = 0; i < cantidadPreguntas; i++) {
+          if (preguntasPorColor.length > 0) {
+            const indexAleatorio = Math.floor(Math.random() * preguntasPorColor.length);
+            seleccionadas.push(preguntasPorColor.splice(indexAleatorio, 1)[0]);
+          }
         }
         return seleccionadas;
       };
 
-      const preguntasSeleccionadas = refuerzoColores.flatMap((color) => {
-        const preguntasPorColor = preguntasValidas.filter(
-          (pregunta) => pregunta.respuestaCorrecta.toLowerCase() === color.toLowerCase()
-        );
-        return seleccionarPreguntas(preguntasPorColor);
-      });
-
-      preguntasSeleccionadas.sort(() => Math.random() - 0.5);
+      const preguntasSeleccionadas = Object.entries(coloresRefuerzo)
+        .filter(([color, nivel]) => nivel !== "sin refuerzo")  // Filtramos los que no requieren refuerzo
+        .flatMap(([color, nivel]) => seleccionarPreguntasPorNivel(color, nivel))
+        .sort(() => Math.random() - 0.5);
 
       console.log("Preguntas seleccionadas para refuerzo:", preguntasSeleccionadas);
 
@@ -179,7 +183,6 @@ const Pregunta = () => {
     respuestasPorColorRef.current[colorActual].correct += esCorrecta ? 1 : 0;
     respuestasPorColorRef.current[colorActual].wrong += esCorrecta ? 0 : 1;
 
-    // Incrementar los errores si es incorrecta
     if (!esCorrecta) {
       erroresPorColor.current[colorActual.toLowerCase()] += 1;
     }
@@ -208,7 +211,7 @@ const Pregunta = () => {
 
       const respuestaModelo = await axios.post("http://localhost:5001/predecir", erroresPorColor.current);
 
-      const coloresRefuerzo = respuestaModelo.data.refuerzo_validado || [];
+      const coloresRefuerzo = respuestaModelo.data.refuerzo_validado || {};
       console.log("Predicción del modelo - Colores de refuerzo:", coloresRefuerzo);
 
       const userRef = doc(db, "users", username);
