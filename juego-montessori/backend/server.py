@@ -1,50 +1,79 @@
-from flask import Flask, request, jsonify
-import joblib
+import pickle
 import pandas as pd
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# Inicializa la aplicación Flask y habilita CORS
 app = Flask(__name__)
 CORS(app)
 
-# Carga el modelo de Random Forest desde el archivo .pkl
-modelo_path = './model/modelo_random_forest.pkl'
-model = joblib.load(modelo_path)
+# Cargar los escaladores y modelos entrenados
+with open("./model/scalers.pkl", "rb") as f:
+    scalers = pickle.load(f)
 
-# Define las columnas esperadas en el modelo
-COLUMNAS_MODELO = [
-    'celeste1', 'celeste2', 'celeste3',
-    'magenta1', 'magenta2', 'magenta3',
-    'azul1', 'azul2', 'azul3',
-    'amarillo1', 'amarillo2', 'amarillo3',
-    'verde1', 'verde2', 'verde3',
-    'rojo1', 'rojo2', 'rojo3'
-]
+with open("./model/kmeans_models.pkl", "rb") as f:
+    kmeans_models = pickle.load(f)
 
-@app.route('/predict', methods=['POST'])
-def predict():
+# Definir etiquetas para los clusters
+labels = {0: "leve", 1: "moderado", 2: "intensivo"}
+
+# Definir umbrales de validación
+umbrales = {
+    1: "leve",
+    2: "moderado",
+    3: "intensivo"
+}
+
+# Columnas esperadas de entrada
+COLUMNAS_ENTRADA = ["celeste", "magenta", "azul", "amarillo", "verde", "rojo"]
+
+@app.route('/predecir', methods=['POST'])
+def predecir():
     try:
         # Obtener los datos JSON enviados por el cliente
-        datos = request.get_json()
-        if not datos or "resultadosPorPregunta" not in datos:
-            return jsonify({"error": "Datos inválidos"}), 400
+        datos = request.json
+        print("Datos recibidos:", datos)
 
-        # Extraer los resultados y convertirlos en un DataFrame
-        resultados = datos["resultadosPorPregunta"]
+        # Verificar si los datos tienen las claves necesarias
+        if not all(color in datos for color in COLUMNAS_ENTRADA):
+            return jsonify({"error": "Faltan claves necesarias en los datos enviados"}), 400
 
-        # Crear un DataFrame asegurando el orden de las columnas
-        df_entrada = pd.DataFrame([{col: resultados.get(col, 0) for col in COLUMNAS_MODELO}])
+        # Crear un DataFrame con los datos asegurando el orden de las columnas
+        df_input = pd.DataFrame([datos])[COLUMNAS_ENTRADA]
 
-        # Realizar la predicción usando el modelo
-        prediccion = model.predict(df_entrada)[0]  # Obtiene el resultado de la predicción
+        # Diccionarios de resultados
+        refuerzo_modelo = {}
+        refuerzo_final = {}
 
-        # Verificar los colores a reforzar en base a la predicción
-        etiquetas = ['celeste', 'magenta', 'azul', 'amarillo', 'verde', 'rojo']
-        colores_refuerzo = [etiquetas[i] for i, valor in enumerate(prediccion) if valor == 1]
+        # Procesar los datos para cada color
+        for color in COLUMNAS_ENTRADA:
+            errores = df_input[color][0]  # Número de errores reportados para el color actual
 
-        # Retornar la predicción y los colores de refuerzo
+            if errores == 0:
+                refuerzo_modelo[color] = "sin refuerzo"
+                refuerzo_final[color] = "sin refuerzo"
+            else:
+                # Escalar los errores usando el StandardScaler entrenado
+                escalado = scalers[color].transform([[errores]])
+
+                # Predecir usando KMeans
+                cluster = kmeans_models[color].predict(escalado)[0]
+
+                # Mapear el cluster a la etiqueta correspondiente
+                refuerzo_modelo[color] = labels.get(cluster, "desconocido")
+
+                # Determinar el refuerzo correcto usando los umbrales
+                refuerzo_correcto = umbrales.get(errores, "intensivo")
+
+                # Verificar si la predicción es correcta
+                if refuerzo_modelo[color] == refuerzo_correcto:
+                    refuerzo_final[color] = refuerzo_modelo[color]
+                else:
+                    refuerzo_final[color] = refuerzo_correcto
+
+        # Devolver los resultados
         return jsonify({
-            "refuerzo_necesario": colores_refuerzo
+            "refuerzo_modelo": refuerzo_modelo,
+            "refuerzo_validado": refuerzo_final
         })
 
     except Exception as e:
