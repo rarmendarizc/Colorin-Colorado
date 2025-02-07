@@ -1,28 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { collection, query, where, getDocs, updateDoc, doc } from "firebase/firestore";
-import axios from "axios";
-import db from "../firebase-config";
+import React, { useEffect, useState, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { io } from "socket.io-client";
+import db from "../firebase-config";
 import Header from "./Header";
 import Footer from "./Footer";
 import { FaDoorOpen } from "react-icons/fa";
 
 const socket = io("http://localhost:5000");
 
-const Pregunta = () => {
+const PreguntaRefuerzo = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const grupoEdad = location.state?.grupoEdad;
-  const username = location.state?.username;
-  const rondaId = location.state?.rondaId;
+  const { grupoEdad, coloresRefuerzo, username, rondaId } = location.state || {};
 
   const [preguntas, setPreguntas] = useState([]);
   const [preguntaActual, setPreguntaActual] = useState(null);
-  const [tiempo, setTiempo] = useState(0);
   const [mensaje, setMensaje] = useState("");
   const [procesandoRespuesta, setProcesandoRespuesta] = useState(false);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [tiempo, setTiempo] = useState(0);
+  const [preguntasIncorrectas, setPreguntasIncorrectas] = useState([]);
 
   const erroresPorColor = useRef({
     celeste: 0,
@@ -33,26 +31,17 @@ const Pregunta = () => {
     rojo: 0,
   });
 
-  const respuestasPorColorRef = useRef({
-    Amarillo: { correct: 0, wrong: 0 },
-    Azul: { correct: 0, wrong: 0 },
-    Celeste: { correct: 0, wrong: 0 },
-    Magenta: { correct: 0, wrong: 0 },
-    Rojo: { correct: 0, wrong: 0 },
-    Verde: { correct: 0, wrong: 0 },
-  });
-
   const intervaloRef = useRef(null);
 
   useEffect(() => {
-    cargarPreguntasIniciales();
+    cargarPreguntasRefuerzo();
     iniciarTemporizador();
   }, []);
 
   useEffect(() => {
-    if (preguntaActual) {
+    if (preguntas.length > 0 && preguntaActual) {
       socket.on("mensajeESP32", (data) => {
-        if (!procesandoRespuesta && preguntaActual) {
+        if (!procesandoRespuesta) {
           manejarRespuesta(data.boton?.toLowerCase());
         }
       });
@@ -61,48 +50,44 @@ const Pregunta = () => {
         socket.off("mensajeESP32");
       };
     }
-  }, [preguntaActual, procesandoRespuesta]);
+  }, [preguntas, preguntaActual, procesandoRespuesta]);
 
-  const cargarPreguntasIniciales = async () => {
+  const cargarPreguntasRefuerzo = async () => {
     try {
+      if (!grupoEdad) {
+        console.error("Error: grupoEdad no definido. No se pueden cargar preguntas.");
+        return;
+      }
+
       const preguntasRef = collection(db, "preguntas");
       const q = query(preguntasRef, where("grupoEdad", "==", grupoEdad));
       const querySnapshot = await getDocs(q);
 
-      const preguntasValidas = querySnapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((p) => p.pregunta && p.respuestaCorrecta && p.imagen);
+      let preguntasValidas = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      let preguntasSeleccionadas = [];
 
-      const preguntasSeleccionadas = seleccionarPreguntasPorColor(preguntasValidas);
+      for (const [color, nivel] of Object.entries(coloresRefuerzo || {})) {
+        if (!nivel || nivel === "sin refuerzo") continue;
+
+        const cantidad = nivel === "leve" ? 1 : nivel === "moderado" ? 2 : nivel === "intensivo" ? 3 : 0;
+        const preguntasPorColor = preguntasValidas.filter(
+          (pregunta) => pregunta.respuestaCorrecta?.toLowerCase() === color.toLowerCase()
+        );
+
+        preguntasSeleccionadas.push(...preguntasPorColor.slice(0, cantidad));
+      }
+
+      preguntasSeleccionadas.sort(() => Math.random() - 0.5);
       setPreguntas(preguntasSeleccionadas);
 
       if (preguntasSeleccionadas.length > 0) {
         setPreguntaActual(preguntasSeleccionadas[0]);
+      } else {
+        finalizarRonda();
       }
     } catch (error) {
-      console.error("Error al cargar preguntas iniciales:", error);
+      console.error("Error al cargar preguntas de refuerzo:", error);
     }
-  };
-
-  const seleccionarPreguntasPorColor = (preguntasValidas) => {
-    const gruposPorColor = {
-      Amarillo: [],
-      Azul: [],
-      Celeste: [],
-      Magenta: [],
-      Rojo: [],
-      Verde: [],
-    };
-
-    preguntasValidas.forEach((pregunta) => {
-      if (gruposPorColor[pregunta.respuestaCorrecta]) {
-        gruposPorColor[pregunta.respuestaCorrecta].push(pregunta);
-      }
-    });
-
-    return Object.values(gruposPorColor)
-      .flatMap((preguntasColor) => preguntasColor.slice(0, 3))
-      .sort(() => Math.random() - 0.5);
   };
 
   const iniciarTemporizador = () => {
@@ -119,12 +104,9 @@ const Pregunta = () => {
 
     setMensaje(esCorrecta ? "✅ ¡Respuesta correcta!" : "❌ Respuesta incorrecta");
 
-    const colorActual = preguntaActual.respuestaCorrecta;
-    respuestasPorColorRef.current[colorActual].correct += esCorrecta ? 1 : 0;
-    respuestasPorColorRef.current[colorActual].wrong += esCorrecta ? 0 : 1;
-
     if (!esCorrecta) {
       erroresPorColor.current[colorCorrecto] += 1;
+      setPreguntasIncorrectas((prev) => [...prev, preguntaActual]);
     }
 
     setTimeout(() => {
@@ -138,38 +120,24 @@ const Pregunta = () => {
     const siguientePreguntaIndex = preguntas.indexOf(preguntaActual) + 1;
     if (siguientePreguntaIndex < preguntas.length) {
       setPreguntaActual(preguntas[siguientePreguntaIndex]);
+    } else if (preguntasIncorrectas.length > 0) {
+      setPreguntas([...preguntasIncorrectas]);
+      setPreguntasIncorrectas([]);
+      setPreguntaActual(preguntasIncorrectas[0]);
     } else {
       finalizarRonda();
     }
   };
 
-  const finalizarRonda = async (usarModelo = true) => {
+  const finalizarRonda = () => {
     clearInterval(intervaloRef.current);
-
-    if (!usarModelo) {
-      return mostrarResultados({});
-    }
-
-    try {
-      const respuestaModelo = await axios.post("http://localhost:5001/predecir", erroresPorColor.current);
-      mostrarResultados(respuestaModelo.data.refuerzo_validado || {});
-    } catch (error) {
-      console.error("Error al finalizar la ronda o comunicarse con el modelo ML:", error);
-    }
-  };
-
-  const mostrarResultados = async (coloresRefuerzo) => {
-    const userRef = doc(db, "users", username);
-    await updateDoc(userRef, {
-      [`progress.rounds.ronda_${rondaId}`]: {
-        tiempoTotal: tiempo,
-        respuestasPorColor: respuestasPorColorRef.current,
-        erroresPorColor: erroresPorColor.current,
-      },
-    });
-
     navigate("/resultados", {
-      state: { username, tiempo, grupoEdad, coloresRefuerzo },
+      state: {
+        mensajeExito: "¡Has completado el refuerzo con éxito!",
+        grupoEdad,
+        username,
+        rondaId: rondaId + 1,
+      },
     });
   };
 
@@ -190,7 +158,7 @@ const Pregunta = () => {
           <div style={styles.modalContent}>
             <h5>¿Quieres finalizar la partida?</h5>
             <div style={styles.modalButtons}>
-              <button onClick={() => finalizarRonda(false)} style={styles.finalizarButton}>
+              <button onClick={finalizarRonda} style={styles.finalizarButton}>
                 Finalizar
               </button>
               <button onClick={() => setMostrarModal(false)} style={styles.cancelarButton}>
@@ -204,7 +172,11 @@ const Pregunta = () => {
       <div style={styles.content}>
         <h2>{preguntaActual?.pregunta || "Cargando pregunta..."}</h2>
         <img src={preguntaActual?.imagen || ""} alt="Pregunta" style={styles.image} />
-        {mensaje && <p style={mensaje.includes("correcta") ? styles.correct : styles.incorrect}>{mensaje}</p>}
+        {mensaje && (
+          <p style={mensaje.includes("correcta") ? styles.correct : styles.incorrect}>
+            {mensaje}
+          </p>
+        )}
       </div>
       <Footer />
     </div>
@@ -308,4 +280,4 @@ const styles = {
   },
 };
 
-export default Pregunta;
+export default PreguntaRefuerzo;

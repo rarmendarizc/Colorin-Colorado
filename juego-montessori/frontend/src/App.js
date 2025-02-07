@@ -7,7 +7,9 @@ import IniciarSesion from "./components/IniciarSesion";
 import Bienvenido from "./components/Bienvenido";
 import Resultados from "./components/Resultados";
 import Historial from "./components/Historial";
-import Pregunta from "./components/Pregunta"
+import Pregunta from "./components/Pregunta";
+import PreguntaRefuerzo from "./components/PreguntaRefuerzo";
+
 
 function App() {
   const [username, setUsername] = useState(""); // Estado para manejar el nombre de usuario
@@ -54,6 +56,9 @@ function App() {
             path="/pregunta"
             element={<Pregunta username={username} />}
           />
+
+           {/* Nueva ruta para PreguntaRefuerzo */}
+           <Route path="/preguntaRefuerzo" element={<PreguntaRefuerzo />} />
 
           {/* Ruta para mostrar el historial */}
           <Route path="/historial" element={<Historial username={username} />} />
