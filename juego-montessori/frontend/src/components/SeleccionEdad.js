@@ -7,10 +7,10 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import db from "../firebase-config";
 
 // Importa las imágenes
-import img1Anio from "../assets/1anio.png";
-import img2Anios from "../assets/2anios.png";
 import img3Anios from "../assets/3anios.png";
 import img4Anios from "../assets/4anios.png";
+import img5Anios from "../assets/5anios.png";
+import img6Anios from "../assets/6anios.png";
 
 const SeleccionEdad = ({ username }) => {
   const navigate = useNavigate();
@@ -86,19 +86,19 @@ const SeleccionEdad = ({ username }) => {
         {/* Opciones de edad */}
         <div style={styles.optionsContainer}>
           <div style={styles.option} onClick={() => seleccionarEdad(1)}>
-            <img src={img1Anio} alt="1 Año" style={styles.image} />
-          </div>
-
-          <div style={styles.option} onClick={() => seleccionarEdad(2)}>
-            <img src={img2Anios} alt="2 Años" style={styles.image} />
-          </div>
-
-          <div style={styles.option} onClick={() => seleccionarEdad(3)}>
             <img src={img3Anios} alt="3 Años" style={styles.image} />
           </div>
 
-          <div style={styles.option} onClick={() => seleccionarEdad(4)}>
+          <div style={styles.option} onClick={() => seleccionarEdad(2)}>
             <img src={img4Anios} alt="4 Años" style={styles.image} />
+          </div>
+
+          <div style={styles.option} onClick={() => seleccionarEdad(3)}>
+            <img src={img5Anios} alt="5 Años" style={styles.image} />
+          </div>
+
+          <div style={styles.option} onClick={() => seleccionarEdad(4)}>
+            <img src={img6Anios} alt="6 Años" style={styles.image} />
           </div>
         </div>
       </div>
